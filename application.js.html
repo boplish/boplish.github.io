@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: application.js</title>
+    
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+    
+    <h1 class="page-title">Source: application.js</h1>
+    
+    
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source"><code>/** @fileOverview API for application developers. */
+
+var ConnectionManager = require('./connectionmanager.js');
+var Router = require('./router.js');
+var sha1 = require('./third_party/sha1.js');
+
+/**
+ * @constructor
+ * @class This is the top-level API for BOPlish applications. It should be the
+ * only interface used for interacting with the P2P network.
+ * @param bootstrapHost {String} Name and port of the host running the signaling
+ * server. The format is 'ws[s]://HOSTNAME[:PORT][/]'. If this is undefined or null then
+ * the host of the serving application is used. Using the `wss` scheme for tls encrypted
+ * communication to the `bootstrapHost` is highly recommended.
+ * @param successCallback {BOPlishClient~onSuccessCallback} Called when a
+ * connection to the P2P network has been established.
+ * @param errorCallback {BOPlishClient~onErrorCallback} Called when a connection
+ * to the P2P network could not be established (e.g. if the WebSocket connection
+ * to the bootstrapHost failed.
+ */
+BOPlishClient = function(bootstrapHost, successCallback, errorCallback) {
+    var browser = this.utils.whatBrowserAmI();
+    if (browser.vendor === 'Firefox' && Number(browser.version.slice(0, 2)) >= 26) {
+        // we are on FF
+    } else if (browser.vendor === 'Chrome' && Number(browser.version.slice(0, 2)) >= 33) {
+        // we are on Chrome
+    } else if (browser.vendor === 'Node.js') {
+        // we are on Node.js
+    } else {
+        errorCallback('You will not be able to use BOPlish as your browser is currently incompatible. Please use either Firefox 26 or Chrome 33 upwards.');
+        return;
+    }
+
+    var hash = new sha1();
+    hash.update(Math.random().toString());
+    this.id = sha1.hexString(hash.digest());
+
+    if (bootstrapHost.substring(bootstrapHost.length - 1, bootstrapHost.length) !== '/') { // add trailing slash if missing
+        bootstrapHost += '/';
+    }
+    if (bootstrapHost.substring(0, 6) !== 'wss://' && bootstrapHost.substring(0, 5) !== 'ws://') { // check syntax
+        errorCallback('Syntax error in bootstrapHost parameter');
+        return;
+    }
+    var channel = new WebSocket(bootstrapHost + 'ws/' + this.id);
+
+    channel.onerror = function(ev) {
+        errorCallback('Failed to open connection to bootstrap server:' + bootstrapHost + ': ' + ev);
+    };
+
+    channel.onopen = function() {
+        this._connectionManager.bootstrap(this._router, successCallback, errorCallback);
+    }.bind(this);
+
+    this._connectionManager = new ConnectionManager(channel);
+    this._router = new Router(this.id, channel, this._connectionManager);
+};
+
+BOPlishClient.prototype = {
+
+    utils: {
+        /**
+         * Returns an object with information about the browser in use
+         */
+        whatBrowserAmI: function() {
+            if (typeof(process) !== 'undefined' && typeof(module) !== 'undefined') {
+                return {
+                    vendor: 'Node.js',
+                    version: process.version
+                };
+            }
+            // source http://stackoverflow.com/questions/5916900/detect-version-of-browser
+            var ua = navigator.userAgent,
+                N = navigator.appName,
+                tem,
+                M = ua.match(/(opera|chrome|safari|firefox|msie|trident)\/?\s*([\d\.]+)/i) || [];
+            M = M[2] ? [M[1], M[2]] : [N, navigator.appVersion, '-?'];
+            if (M && (tem = ua.match(/version\/([\.\d]+)/i)) !== null) {
+                M[2] = tem[1];
+            }
+            return {
+                vendor: M[0],
+                version: M[1]
+            };
+        }
+    },
+    /**
+     * Sends a message to the given peer.
+     * @param to {String} Receiver of the message
+     * @param protocol {String} Protocol name. On the receiver side a handler
+     * has to be installed for this protocol.
+     * @param payload {Object} The payload to send.
+     */
+    send: function(to, protocol, payload) {
+        this._router.route(to, protocol, payload);
+    },
+    /**
+     * Installs a handler for the given protocol name.
+     * @param protocol {String} The protocol to handle.
+     * @param callback {BOPlishClient~onMessageCallback} The function invoked when a message of the
+     * given protocol is received through the P2P network.
+     */
+    setOnMessageHandler: function(protocol, callback) {
+        this._router.registerDeliveryCallback(protocol, callback);
+    },
+    /**
+     * Installs a special callback that receives all messages despite their
+     * protocol.
+     * @param callback {BOPlishClient~monitorCallback} Invoked on reception of a
+     * message.
+     */
+    setMonitorCallback: function(callback) {
+        this._router.registerMonitorCallback(callback);
+    },
+    /**
+     * @return {Array} The list of all IDs of peers this peer has an open
+     * connection to.
+     */
+    getConnectedPeers: function() {
+        return this._router.getPeerIds();
+    }
+};
+
+/**
+ * Invoked when a message is received.
+ * @callback BOPlishClient~onMessageCallback
+ * @param from {String} The sender's ID
+ * @param payload {Object} The message object in JSON format.
+ */
+
+/**
+ * Invoked when a connection to the P2P network has been established.
+ * @callback BOPlishClient~onSuccessCallback
+ */
+
+/**
+ * Invoked when a connection to the P2P network could not be established.
+ * @callback BOPlishClient~onErrorCallback
+ */
+
+/**
+ * Invoked when a message has been received. Useful for monitoring the complete
+ * traffic passing in/out of this peer.
+ * @callback BOPlishClient~monitorCallback
+ * @param message {Object} The raw message in router format.
+ */
+
+if (typeof(module) !== 'undefined') {
+    module.exports = BOPlishClient;
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Index</a></h2><h3>Classes</h3><ul><li><a href="BOPlishClient.html">BOPlishClient</a></li><li><a href="BopURI.html">BopURI</a></li><li><a href="Chord.html">Chord</a></li><li><a href="ConnectionManager.html">ConnectionManager</a></li><li><a href="Peer.html">Peer</a></li><li><a href="Router.html">Router</a></li><li><a href="sha1.html">sha1</a></li></ul><h3>Global</h3><ul><li><a href="global.html#Helper">Helper</a></li></ul>
+</nav>
+
+<br clear="both">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.2.2</a> on Fri Aug 15 2014 17:48:09 GMT+0200 (CEST)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
